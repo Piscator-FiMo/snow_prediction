@@ -1,0 +1,4 @@
+### GET request to example server
+GET https://measurement-data.slf.ch/imis/data/by_station/
+
+###
