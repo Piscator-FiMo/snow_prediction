@@ -1,3 +1,5 @@
+from copy import copy
+
 import pandas as pd
 from darts import TimeSeries, concatenate
 from darts.dataprocessing.transformers import StaticCovariatesTransformer, Scaler
@@ -21,12 +23,16 @@ class Model:
         self.train_past_cov_transformed = None
         self.val_past_cov_transformed = None
 
-        self.input_chunk_length = 3
-        self.forecast_horizon = 12
+        self.input_chunk_length = 48 * 7
+        self.forecast_horizon = 24
 
         self.train_target_scaler = None
         self.train_past_cov_scaler = None
         self.train_static_transformer = None
+
+        self.actual_target_series = None
+        self.actual_target_transformed = None
+        self.train_target_series = None
 
         if model_name == "TFT":
             # before starting, we define some constants
@@ -54,6 +60,7 @@ class Model:
             self.model = TFTModel(
                 input_chunk_length=self.input_chunk_length,
                 output_chunk_length=self.forecast_horizon,
+                optimizer_kwargs={'lr': 1e-4},
                 hidden_size=64,
                 lstm_layers=1,
                 num_attention_heads=4,
@@ -92,14 +99,14 @@ class Model:
         # target(s)
         target_series_list_split = [x.split_after(self.preprocessor.metadata.training_cutoff) for x in
                                     target_series_list]
-        train_target_series_list = [x[0] for x in target_series_list_split]
-        val_target_series_list = [x[1] for x in target_series_list_split]
-
+        train_target_series_list = [x[1] for x in target_series_list_split]
+        self.train_target_series = copy(train_target_series_list)
+        val_target_series_list = [x[0] for x in target_series_list_split]
         # past covariates:
         past_cov_series_list_split = [x.split_after(self.preprocessor.metadata.training_cutoff) for x in
                                       past_cov_series_list]
-        train_past_cov_series_list = [x[0] for x in past_cov_series_list_split]
-        val_past_cov_series_list = [x[1] for x in past_cov_series_list_split]
+        train_past_cov_series_list = [x[1] for x in past_cov_series_list_split]
+        val_past_cov_series_list = [x[0] for x in past_cov_series_list_split]
 
         # Normalize the time series (note: we avoid fitting the transformer on the validation set)
 
@@ -108,7 +115,8 @@ class Model:
 
         self.train_target_transformed = self.train_target_scaler.fit_transform(train_target_series_list)
         self.val_target_transformed = self.train_target_scaler.transform(val_target_series_list)
-
+        self.actual_target_series = target_series_list
+        self.actual_target_transformed = self.train_target_scaler.transform(self.actual_target_series)
         self.train_past_cov_transformed = self.train_past_cov_scaler.fit_transform(train_past_cov_series_list)
         self.val_past_cov_transformed = self.train_past_cov_scaler.fit_transform(val_past_cov_series_list)
 
@@ -120,39 +128,8 @@ class Model:
                        verbose=True)
 
     def predict(self, target_series: TimeSeries, past_covariates: TimeSeries):
-        forecast = self.model.predict(n=self.forecast_horizon, series=target_series, past_covariates=past_covariates, )
+        forecast = self.model.predict(n=self.forecast_horizon, series=target_series, past_covariates=past_covariates, num_samples=200)
         return forecast
-
-    def validate(self, on_finished_projects):
-        backtest_series_transformed = self.model.generate_backtest_series(on_finished_projects=on_finished_projects)
-
-        backtest_series = self.model.train_target_scaler.inverse_transform(backtest_series_transformed)
-        if on_finished_projects:
-            target_series = self.model.val_target_transformed
-            data = self.model.preprocessor.val_data
-        else:
-            target_series = self.model.test_target_transformed
-            data = self.model.preprocessor.test_data
-        target_series = self.model.train_target_scaler.inverse_transform(target_series)
-        gp = data.groupby(self.model.preprocessor.metadata.group_cols)
-        results = []
-        for backtest, target, group in zip(backtest_series, target_series, gp.groups.keys()):
-            print(f"Group Keys: {group}")
-            target_df = target.pd_dataframe()
-            backtest_df = concatenate(backtest).pd_dataframe()
-            # print(backtest_df.index)
-
-            merge = pd.merge(target_df, backtest_df, how='left', left_index=True, right_index=True,
-                             suffixes=('_true', '_forecast'))
-            merge['residuals'] = target_df - backtest_df
-            merge['integration_id'] = group[0]
-            merge['stage'] = group[1]
-            merge['milestone'] = group[2]
-
-            results.append(merge)
-        result_df = pd.concat(results, axis=0)
-        result_df.reset_index(drop=False, inplace=True)
-        return result_df
 
     def save(self, directory: str):
         self.model.save()

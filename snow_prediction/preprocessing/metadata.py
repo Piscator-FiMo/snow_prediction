@@ -38,9 +38,9 @@ snow_metadata: Metadata = Metadata(
     past_cov_cols=['dw_30min_mean', 'dw_30min_sd', 'rh_30min_mean', 'rswr_30min_mean', 'ta_30min_mean',
                    'ts0_30min_mean', 'ts100_30min_mean', 'ts25_30min_mean', 'ts50_30min_mean', 'tss_30min_mean',
                    'vw_30min_max', 'vw_30min_mean'],
-    static_cols=['active', 'elevation', 'label', 'lat', 'lon', 'network', 'type'],
+    static_cols=['active', 'elevation', 'label', 'lat', 'lon'],
     format_time="%Y-%m-%d %H:%M:%S+00:00",
     freq="30min",
     multivariate=False,
-    training_cutoff=0.7,
+    training_cutoff=0.5,
 )

@@ -78,7 +78,7 @@ class Preprocessor:
 
     def _get_station_df(self):
         metadata_file = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, 'metadata', 'stations.csv'))
-        return pd.read_csv(metadata_file)
+        return pd.read_csv(metadata_file).drop(columns=['network', 'type'])
 
     def _process_frame(self, file: str, columns: list[str]) -> pd.DataFrame:
         station_df = self._get_station_df()
@@ -87,6 +87,7 @@ class Preprocessor:
             df.columns = map(str.lower, df.columns)
             df = df.reindex(columns=columns)
             df.ffill(inplace=True)
+            df[self.metadata.target_cols] = df[self.metadata.target_cols].clip(lower=0)
             df.dropna(subset=self.metadata.target_cols, inplace=True)
             df = pd.merge(df, station_df, on='station_code', how='left')
             return df
