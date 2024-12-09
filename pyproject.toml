@@ -9,7 +9,13 @@ readme = "README.md"
 python = "^3.12"
 darts = "^0.31.0"
 requests = "^2.32.3"
+torch = {version = "^2.5.1+cu124", source = "pytorch_cuda"}
 
+
+[[tool.poetry.source]]
+name = "pytorch_cuda"
+url = "https://download.pytorch.org/whl/cu124"
+priority = "explicit"
 
 [build-system]
 requires = ["poetry-core"]
