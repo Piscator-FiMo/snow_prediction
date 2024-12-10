@@ -5,6 +5,8 @@ from darts import TimeSeries, concatenate
 from darts.dataprocessing.transformers import StaticCovariatesTransformer, Scaler
 from darts.models import TFTModel, CatBoostModel
 from darts.utils.likelihood_models import QuantileRegression
+from pytorch_lightning.callbacks import EarlyStopping
+from torchmetrics import MeanAbsolutePercentageError
 
 from snow_prediction.preprocessing.preprocessor import Preprocessor
 
@@ -57,33 +59,47 @@ class Model:
                 0.99,
             ]
 
+            _torch_metrics = MeanAbsolutePercentageError()
+
+            # early stop callback
+            _early_stopper = EarlyStopping(
+                monitor="val_MeanAbsolutePercentageError",  # "val_loss",
+                patience=5,
+                min_delta=0.05,
+                mode='min',
+            )
+
             self.model = TFTModel(
                 input_chunk_length=self.input_chunk_length,
                 output_chunk_length=self.forecast_horizon,
                 optimizer_kwargs={'lr': 1e-4},
+                pl_trainer_kwargs={"callbacks": [_early_stopper]},
                 hidden_size=64,
                 lstm_layers=1,
                 num_attention_heads=4,
                 dropout=0.1,
                 batch_size=16,
-                n_epochs=2,
+                n_epochs=10,
                 add_relative_index=True,
                 add_encoders=None,
                 likelihood=QuantileRegression(
                     quantiles=quantiles
                 ),  # QuantileRegression is set per default
                 # loss_fn=MSELoss(),
+                torch_metrics=_torch_metrics,
                 random_state=42,
-                use_static_covariates=True
+                use_static_covariates=True,
+                log_tensorboard=True,
+                save_checkpoints=True
             )
 
-        if model_name == "CatBoost":
-            self.model = CatBoostModel(
-                lags=self.input_chunk_length,
-                lags_past_covariates=self.input_chunk_length,
-                lags_future_covariates=None,
-                output_chunk_length=self.forecast_horizon
-            )
+        # if model_name == "CatBoost":
+        #     self.model = CatBoostModel(
+        #         lags=self.input_chunk_length,
+        #         lags_past_covariates=self.input_chunk_length,
+        #         lags_future_covariates=None,
+        #         output_chunk_length=self.forecast_horizon
+        #     )
 
     def transform(self):
 
@@ -99,14 +115,14 @@ class Model:
         # target(s)
         target_series_list_split = [x.split_after(self.preprocessor.metadata.training_cutoff) for x in
                                     target_series_list]
-        train_target_series_list = [x[1] for x in target_series_list_split]
+        train_target_series_list = [x[0] for x in target_series_list_split]
         self.train_target_series = copy(train_target_series_list)
-        val_target_series_list = [x[0] for x in target_series_list_split]
+        val_target_series_list = [x[1] for x in target_series_list_split]
         # past covariates:
         past_cov_series_list_split = [x.split_after(self.preprocessor.metadata.training_cutoff) for x in
                                       past_cov_series_list]
-        train_past_cov_series_list = [x[1] for x in past_cov_series_list_split]
-        val_past_cov_series_list = [x[0] for x in past_cov_series_list_split]
+        train_past_cov_series_list = [x[0] for x in past_cov_series_list_split]
+        val_past_cov_series_list = [x[1] for x in past_cov_series_list_split]
 
         # Normalize the time series (note: we avoid fitting the transformer on the validation set)
 
@@ -136,3 +152,6 @@ class Model:
 
     def load(self, directory: str):
         self.model = self.model.load(directory)
+
+    def load_from_checkpoint(self):
+        return self.model.load_from_checkpoint(model_name='2024-12-09_18_54_29_torch_model_run_39864', best=True)
